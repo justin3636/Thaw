@@ -477,6 +477,51 @@ struct MenuBarItemTriggersManagerPlanTests {
 
     // MARK: - Ownership
 
+    @Test("Layout protection survives identity loss without restoring the saved section")
+    func layoutProtectionSurvivesIdentityLoss() {
+        let manager = makeManager()
+        let target = "org.hammerspoon.Hammerspoon:JW.TVControl"
+        manager.add(makeTrigger(name: "TV", item: target))
+        for present: Set<String> in [[target], ["com.apple.controlcenter:JW.TVControl"], [], [target]] {
+            let protected = manager.layoutProtectionIdentifiers(
+                presentIdentifiers: present, presentIdentifierBases: [:]
+            )
+            #expect(protected == [target])
+            let saved = MenuBarItemManager.savedOrderExcludingTriggerControlledIdentifiers(
+                ["alwaysHidden": [target, "other"]],
+                controlledIdentifiers: protected,
+                knownBaseIdentifiers: [target], knownLiveIdentifiers: [target, "other"]
+            )
+            #expect(saved["alwaysHidden"] == ["other"])
+        }
+    }
+
+    @Test("Layout protection retains a resolved instance through gaps and releases on disable")
+    func layoutProtectionRetainsInstanceAndReleases() {
+        let manager = makeManager()
+        manager.add(makeTrigger(name: "TV", item: "ns:Title:0", baseIdentifier: "ns:Title"))
+        #expect(manager.layoutProtectionIdentifiers(
+            presentIdentifiers: ["ns:Title:3"],
+            presentIdentifierBases: ["ns:Title:3": "ns:Title"]
+        ) == ["ns:Title:3"])
+        #expect(manager.layoutProtectionIdentifiers(
+            presentIdentifiers: [], presentIdentifierBases: [:]
+        ) == ["ns:Title:3"])
+        manager.triggers[0].isEnabled = false
+        #expect(manager.layoutProtectionIdentifiers(
+            presentIdentifiers: [], presentIdentifierBases: [:]
+        ).isEmpty)
+        manager.triggers[0].isEnabled = true
+        #expect(manager.layoutProtectionIdentifiers(
+            presentIdentifiers: [], presentIdentifierBases: [:]
+        ) == ["ns:Title:0"])
+        manager.triggers = []
+        #expect(manager.layoutProtectionIdentifiers(
+            presentIdentifiers: [], presentIdentifierBases: [:]
+        ).isEmpty)
+    }
+
+
     @Test("Ownership does not wait for the condition to be met")
     func ownershipDoesNotWaitForTheCondition() {
         let manager = makeManager()

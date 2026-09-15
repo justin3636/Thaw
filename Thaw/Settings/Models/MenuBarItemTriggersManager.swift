@@ -112,6 +112,10 @@ final class MenuBarItemTriggersManager {
     /// neither reliably — a warm cache read touches no observable state.)
     private(set) var controlledIdentifiers = Set<String>()
 
+    /// Last resolved placement identities, retained across temporary cache/XPC gaps.
+    @ObservationIgnored
+    private var layoutProtectionTargets = [TriggerTargetItem: String]()
+
     /// Per-source feature flags, also surfaced in the Developer pane.
     let featureFlags = TriggerFeatureFlagsManager()
 
@@ -411,6 +415,29 @@ final class MenuBarItemTriggersManager {
         if identifiers != controlledIdentifiers {
             controlledIdentifiers = identifiers
         }
+    }
+
+    /// Placement protection follows configuration, not the current action plan.
+    /// A missing or unresolved item cannot produce a move action, but releasing
+    /// it here lets saved-layout restoration race the next successful refresh.
+    /// Keep the last resolved instance until the target is removed or disabled.
+    func layoutProtectionIdentifiers(
+        presentIdentifiers: Set<String>,
+        presentIdentifierBases: [String: String]
+    ) -> Set<String> {
+        var nextTargets = [TriggerTargetItem: String]()
+        for trigger in triggers where trigger.isEnabled && isAvailable(trigger) {
+            for target in trigger.allTargetItems where !target.identifier.isEmpty {
+                nextTargets[target] = Self.resolvedPresentIdentifier(
+                    for: target.identifier,
+                    capturedBaseIdentifier: target.baseIdentifier,
+                    presentIdentifiers: presentIdentifiers,
+                    presentIdentifierBases: presentIdentifierBases
+                ) ?? layoutProtectionTargets[target] ?? target.identifier
+            }
+        }
+        layoutProtectionTargets = nextTargets
+        return Set(nextTargets.values)
     }
 
     /// Whether any enabled trigger owns the given item's placement.

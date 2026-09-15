@@ -33,12 +33,9 @@ extension MenuBarItemTriggersManager {
         // Item-manager setup follows settings setup. Claim configured targets
         // up front so its initial cache cannot restore a persisted pre-trigger
         // position before the first live evaluation establishes the action.
-        let configuredTargetIdentifiers = Set(
-            triggers
-                .filter { $0.isEnabled && isAvailable($0) }
-                .flatMap(\.allItemIdentifiers)
+        appState.itemManager.setTriggerControlledItemIdentifiers(
+            layoutProtectionIdentifiers(presentIdentifiers: [], presentIdentifierBases: [:])
         )
-        appState.itemManager.setTriggerControlledItemIdentifiers(configuredTargetIdentifiers)
 
         // Re-evaluate on every distinct system state change.
         systemMonitor.$state
@@ -182,10 +179,13 @@ extension MenuBarItemTriggersManager {
             presentIdentifierBases: presentIdentifierBases,
             now: now
         )
-        // Keep the durable layout separate from sections temporarily owned by
-        // trigger actions. This includes both reveal and hide actions, and
-        // naturally handles partial multi-item ownership.
-        let triggerControlledIdentifiers = Set(plan.actions.values.flatMap(\.identifiers))
+        // Missing identities suppress actions, not ownership. Keep configured
+        // targets protected while XPC resolves them so saved layout cannot
+        // move them before the next trigger evaluation.
+        let triggerControlledIdentifiers = layoutProtectionIdentifiers(
+            presentIdentifiers: presentIdentifiers,
+            presentIdentifierBases: presentIdentifierBases
+        )
         // Editor ownership is a separate question from which items currently
         // carry an action, and it has a single writer. An overridden trigger
         // emits no action but still owns its target, so deriving ownership
@@ -329,7 +329,10 @@ extension MenuBarItemTriggersManager {
                 presentIdentifiers: presentIdentifiers,
                 presentIdentifierBases: presentIdentifierBases
             )
-            let triggerControlledIdentifiers = Set(plan.actions.values.flatMap(\.identifiers))
+            let triggerControlledIdentifiers = self.layoutProtectionIdentifiers(
+                presentIdentifiers: presentIdentifiers,
+                presentIdentifierBases: presentIdentifierBases
+            )
             self.refreshControlledIdentifiers()
             self.appState?.itemManager.setTriggerControlledItemIdentifiers(triggerControlledIdentifiers)
             guard let action = plan.actions[triggerID] else {

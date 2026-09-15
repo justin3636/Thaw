@@ -29,6 +29,20 @@ nonisolated struct MenuBarItemOrder: Codable, Equatable {
         return []
     }
 
+    static func editorDropOrder<ID: Hashable>(actual: [ID], source: ID, target: ID, after: Bool) -> [ID] {
+        var result = actual.filter { $0 != source }
+        let index = result.firstIndex(of: target).map { $0 + (after ? 1 : 0) } ?? result.count
+        result.insert(source, at: index)
+        return result
+    }
+
+    mutating func adoptOrder(_ identifiers: [String]) {
+        let existing = identifiers.compactMap { ranks[$0] }.sorted()
+        let values = existing.count == identifiers.count && Set(existing).count == existing.count
+            ? existing : identifiers.indices.map { ($0 + 1) * 10 }
+        for (identifier, rank) in zip(identifiers, values) { ranks[identifier] = rank }
+    }
+
     func sorted(_ identifiers: [String], overrides: [String: Int] = [:]) -> [String] {
         let icon = MenuBarItemTag.visibleControlItem.tagIdentifier
         return identifiers.enumerated().sorted { lhs, rhs in

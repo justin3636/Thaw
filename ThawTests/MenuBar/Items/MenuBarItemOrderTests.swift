@@ -5,6 +5,28 @@ import Testing
 
 @MainActor
 struct MenuBarItemOrderTests {
+    @Test func editorDropsHonorEndSlotsAndCrossSectionTargets() {
+        #expect(MenuBarItemOrder.editorDropOrder(
+            actual: ["codex", "hammerspoon", "passwords"], source: "hammerspoon", target: "passwords", after: true
+        ) == ["codex", "passwords", "hammerspoon"])
+        #expect(MenuBarItemOrder.editorDropOrder(
+            actual: ["dockdoor", "hotspot", "dropbox"], source: "walyro", target: "dropbox", after: false
+        ) == ["dockdoor", "hotspot", "walyro", "dropbox"])
+        #expect(MenuBarItemOrder.editorDropOrder(
+            actual: [String](), source: "walyro", target: "divider", after: false
+        ) == ["walyro"])
+    }
+
+    @Test func successfulManualDropUpdatesRanksWithoutChangingOtherSections() {
+        var order = MenuBarItemOrder(ranks: ["codex": 70, "hammerspoon": 90, "passwords": 140, "tv": 180])
+        order.adoptOrder(["codex", "passwords", "hammerspoon"])
+        #expect(order.sorted(["codex", "hammerspoon", "passwords"]) == ["codex", "passwords", "hammerspoon"])
+        #expect(order.ranks["tv"] == 180)
+        order.ranks["hammerspoon"] = 70
+        order.adoptOrder(["hammerspoon", "codex", "passwords"])
+        #expect(order.sorted(["passwords", "codex", "hammerspoon"]) == ["hammerspoon", "codex", "passwords"])
+    }
+
     @Test func roomListenerIsOrderedByMovingNeighborsLeft() throws {
         var actual = ["room", "codex", "hammerspoon", "teams", "walyro", "battery", "passwords"]
         let desired = ["codex", "hammerspoon", "teams", "walyro", "battery", "room", "passwords"]

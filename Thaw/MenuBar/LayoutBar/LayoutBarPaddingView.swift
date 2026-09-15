@@ -346,11 +346,10 @@ final class LayoutBarPaddingView: NSView {
                         previous.map { .rightOfItem($0) } ?? destination
                     pendingMove = (item, target)
                     do {
-                        try await appState.itemManager.move(
+                        try await appState.itemManager.moveFromLayoutEditor(
                             item: item,
                             to: target,
-                            skipInputPause: true,
-                            options: .init(watchdogTimeout: MenuBarItemManager.layoutWatchdogTimeout)
+                            expectedSection: container.section
                         )
                     } catch {
                         // One member failing must not strand the rest of the
@@ -648,11 +647,10 @@ final class LayoutBarPaddingView: NSView {
             }
             defer { watchdogTask.cancel() }
             do {
-                try await appState.itemManager.move(
+                try await appState.itemManager.moveFromLayoutEditor(
                     item: item,
                     to: destination,
-                    skipInputPause: true,
-                    options: .init(watchdogTimeout: MenuBarItemManager.layoutWatchdogTimeout)
+                    expectedSection: container.section
                 )
                 guard isCurrentStabilization(generation) else { return }
                 appState.itemManager.removeTemporarilyShownItemFromCache(with: item.tag)
@@ -727,11 +725,10 @@ final class LayoutBarPaddingView: NSView {
                     _ = await appState.itemManager.refreshCacheAfterLayoutEditorMove()
                     guard isCurrentStabilization(generation) else { return }
                     do {
-                        try await appState.itemManager.move(
+                        try await appState.itemManager.moveFromLayoutEditor(
                             item: item,
                             to: destination,
-                            skipInputPause: true,
-                            options: .init(watchdogTimeout: MenuBarItemManager.layoutWatchdogTimeout)
+                            expectedSection: container.section
                         )
                         guard isCurrentStabilization(generation) else { return }
                         appState.itemManager.removeTemporarilyShownItemFromCache(with: item.tag)
@@ -930,11 +927,10 @@ final class LayoutBarPaddingView: NSView {
             try? await Task.sleep(for: .milliseconds(250))
             await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
             do {
-                try await appState.itemManager.move(
+                try await appState.itemManager.moveFromLayoutEditor(
                     item: item,
                     to: destination,
-                    skipInputPause: true,
-                    options: .init(watchdogTimeout: MenuBarItemManager.layoutWatchdogTimeout)
+                    expectedSection: container.section
                 )
                 // Same #983 reorder as the primary path: arm the
                 // save-gate user-move exemption before stabilize so
@@ -1337,11 +1333,10 @@ final class LayoutBarPaddingView: NSView {
             try? await Task.sleep(for: .milliseconds(120))
             guard isCurrentStabilization(generation) else { return false }
             do {
-                try await appState.itemManager.move(
+                try await appState.itemManager.moveFromLayoutEditor(
                     item: item,
                     to: destination,
-                    skipInputPause: true,
-                    options: .init(watchdogTimeout: MenuBarItemManager.layoutWatchdogTimeout)
+                    expectedSection: expectedSection
                 )
                 guard isCurrentStabilization(generation) else { return false }
                 guard await appState.itemManager.refreshCacheAfterLayoutEditorMove() else {

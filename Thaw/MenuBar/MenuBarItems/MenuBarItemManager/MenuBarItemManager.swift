@@ -394,6 +394,7 @@ final class MenuBarItemManager {
     /// Suppresses image cache updates during layout reset to prevent stale cache during moves.
     var isResettingLayout = false
     /// Suppresses saving section order during an active order-restore pass.
+    var isApplyingEditorMove = false
     var isRestoringItemOrder = false
     /// Timestamp when isRestoringItemOrder was set (for timeout detection).
     var isRestoringItemOrderTimestamp: Date?
@@ -620,6 +621,7 @@ final class MenuBarItemManager {
     ///   warning, for a caller that retries on every cache tick and would
     ///   otherwise flood the log with an expected refusal.
     func isAutomaticBulkApplyPermitted(caller: String, quietly: Bool = false) -> Bool {
+        guard !isApplyingEditorMove else { return false }
         if Self.automaticBulkApplyPermitted(
             consecutiveUnfinishedBatches: consecutiveUnfinishedBulkApplies,
             lastUnfinishedBatchAt: unfinishedMoveBatchObservedAt,

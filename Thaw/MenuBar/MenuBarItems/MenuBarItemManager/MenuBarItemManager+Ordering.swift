@@ -61,10 +61,79 @@ extension MenuBarItemManager {
         } + items.filter { !$0.isMovable }
     }
 
+    /// Commit a Layout-editor drop as a section/order transaction. Interior
+    /// parked anchors are unreliable, so enter at the section's left edge and
+    /// rebuild the requested sequence with the same verified prepend planner.
+    func moveFromLayoutEditor(
+        item: MenuBarItem, to destination: MoveDestination,
+        expectedSection: MenuBarSection.Name
+    ) async throws {
+        guard !isApplyingEditorMove, !isRestoringItemOrder,
+              !isApplyingProfileLayout, !isBulkApplyInProgress else { throw EventError.moveEngineBusy(item) }
+        let editingProfileID = appState?.profileManager.activeProfileID
+        isApplyingEditorMove = true
+        defer {
+            isApplyingEditorMove = false
+            scheduleOrderEnforcement()
+        }
+        guard await refreshCacheAfterLayoutEditorMove(timeout: .seconds(3)) else {
+            throw EventError.moveSuperseded(item)
+        }
+        let original = itemCache[expectedSection]
+        let desired = MenuBarItemOrder.editorDropOrder(
+            actual: original.map(\.windowID), source: item.windowID,
+            target: destination.targetItem.windowID,
+            after: { if case .rightOfItem = destination { return true }; return false }()
+        )
+        // Empty-section dividers are revealed by the editor before this call.
+        let entryDestination = original.first(where: { $0.windowID != item.windowID })
+            .map { MoveDestination.leftOfItem($0) } ?? destination
+        let options = MoveOptions(watchdogTimeout: Self.layoutWatchdogTimeout,
+                                  maxMoveAttempts: 1, hideCursorAcrossAttempts: false)
+        if !original.contains(where: { $0.windowID == item.windowID }) {
+            try await move(item: item, to: entryDestination, skipInputPause: true, options: options)
+            guard await refreshCacheAfterLayoutEditorMove(timeout: .seconds(3)) else {
+                throw EventError.moveSuperseded(item)
+            }
+        }
+        for _ in 0..<desired.count {
+            try Task.checkCancellation()
+            let actual = itemCache[expectedSection]
+            if actual.map(\.windowID) == desired { break }
+            guard Set(actual.map(\.windowID)) == Set(desired),
+                  let step = MenuBarItemOrder.leftwardInsertions(actual: actual.map(\.windowID), desired: desired).first,
+                  let source = actual.first(where: { $0.windowID == step.source }), source.isMovable,
+                  let anchor = actual.first(where: { $0.windowID == step.target }) else {
+                throw EventError.moveSuperseded(item)
+            }
+            try await move(item: source, to: .leftOfItem(anchor), skipInputPause: true, options: options)
+            guard await refreshCacheAfterLayoutEditorMove(timeout: .seconds(3)) else {
+                throw EventError.moveSuperseded(item)
+            }
+        }
+        let settled = itemCache[expectedSection]
+        guard settled.map(\.windowID) == desired else { throw EventError.moveSuperseded(item) }
+        // A manual drop changes the durable ranks too, otherwise enforcement
+        // immediately undoes the user's successful drag.
+        guard appState?.profileManager.activeProfileID == editingProfileID else {
+            throw EventError.moveSuperseded(item)
+        }
+        itemOrder.adoptOrder(settled.map(\.tag.tagIdentifier))
+        recordExternalMoveOperation()
+        guard await refreshCacheAfterLayoutEditorMove(timeout: .seconds(3), forcePersistSavedOrder: true) else {
+            throw EventError.moveSuperseded(item)
+        }
+        persistItemOrder()
+        if let profileID = editingProfileID, let profiles = appState?.profileManager {
+            try profiles.updateProfileLayout(id: profileID, itemManager: self)
+        }
+        Self.diagLog.info("Layout editor drop committed: \(item.tag.tagIdentifier) in \(expectedSection.logString)")
+    }
+
     /// Order-only repair never changes section membership. Triggers remain
     /// the sole owner of their items' reveal/hide decisions.
     func scheduleOrderEnforcement() {
-        guard itemOrder.enabled, orderEnforcementTask == nil, appState != nil else { return }
+        guard itemOrder.enabled, !isApplyingEditorMove, orderEnforcementTask == nil, appState != nil else { return }
         orderEnforcementTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard let self else { return }
@@ -73,7 +142,7 @@ extension MenuBarItemManager {
                 self.orderEnforcementTask = nil
                 if moved { self.scheduleOrderEnforcement() }
             }
-            guard !Task.isCancelled, !self.isResettingLayout,
+            guard !Task.isCancelled, !self.isApplyingEditorMove, !self.isResettingLayout,
                   !self.isRestoringItemOrder, !self.isApplyingProfileLayout,
                   !self.isBulkApplyInProgress, self.temporarilyShownItemContexts.isEmpty,
                   self.appState?.settings.triggers.pendingMoveReveal.isEmpty == true,
@@ -97,6 +166,7 @@ extension MenuBarItemManager {
                                            maxMoveAttempts: 1, hideCursorAcrossAttempts: false,
                                            shouldBegin: { [weak self] in
                                                self?.itemOrder.enabled == true &&
+                                               self?.isApplyingEditorMove == false &&
                                                self?.isApplyingProfileLayout == false &&
                                                self?.isBulkApplyInProgress == false &&
                                                self?.appState?.settings.triggers.pendingMoveReveal.isEmpty == true &&

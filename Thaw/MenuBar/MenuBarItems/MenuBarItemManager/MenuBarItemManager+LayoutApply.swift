@@ -907,7 +907,7 @@ extension MenuBarItemManager {
         if Task.isCancelled {
             return
         }
-        guard shouldBegin?() ?? true else {
+        guard !isApplyingEditorMove, shouldBegin?() ?? true else {
             MenuBarItemManager.diagLog.info(
                 "applyProfileLayout: skipping automatic apply superseded during its idle wait"
             )

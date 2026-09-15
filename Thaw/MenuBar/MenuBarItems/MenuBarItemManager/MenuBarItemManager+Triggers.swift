@@ -305,6 +305,7 @@ extension MenuBarItemManager {
         guard let appState else { return .unavailable }
         guard !isResettingLayout,
               !isRestoringItemOrder,
+              !isApplyingEditorMove,
               !isApplyingProfileLayout,
               !isBulkApplyInProgress
         else {

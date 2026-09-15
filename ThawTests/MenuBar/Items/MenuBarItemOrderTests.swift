@@ -5,6 +5,17 @@ import Testing
 
 @MainActor
 struct MenuBarItemOrderTests {
+    @Test func orderingWaitsForResolvedIdentities() {
+        let manager = MenuBarItemManager()
+        let known = MenuBarItem.fixture(tag: .appItem(bundleID: "com.example.known", title: "Item"), windowID: 1)
+        let provisionalTag = MenuBarItemTag(namespace: .controlCenter, title: "JW.AC")
+        let provisional = MenuBarItem.fixture(tag: provisionalTag, windowID: 2, sourcePID: nil)
+        manager.itemOrder = MenuBarItemOrder(enabled: true, ranks: [known.tag.tagIdentifier: 20, provisional.tag.tagIdentifier: 10])
+        #expect(manager.orderedItems([known, provisional]).map(\.windowID) == [1, 2])
+        let resolved = MenuBarItem.fixture(tag: provisionalTag, windowID: 2, sourcePID: 1234)
+        #expect(manager.orderedItems([known, resolved]).map(\.windowID) == [2, 1])
+    }
+
     @Test func triggerOverridesDoNotChangeBaseline() {
         let order = MenuBarItemOrder(ranks: ["a": 10, "b": 20, "c": 30])
         #expect(order.sorted(["a", "b", "c"], overrides: ["c": 15]) == ["a", "c", "b"])

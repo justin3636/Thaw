@@ -825,6 +825,14 @@ extension MenuBarItemManager {
         duringSettling: Bool = false,
         shouldBegin: (@MainActor () -> Bool)? = nil
     ) async {
+        // The restricted early restore can still discover new items under
+        // incorrect source identities and classify them as unmanaged arrivals.
+        // The normal post-settling restore already replays the complete layout;
+        // leave the bar untouched until that pass. Trigger evaluation is separate.
+        guard !duringSettling else {
+            Self.diagLog.debug("applyProfileLayout: deferring early restore until item identities settle")
+            return
+        }
         let pinnedHidden = spec.pinnedHidden
         let pinnedAlwaysHidden = spec.pinnedAlwaysHidden
         let rawSectionOrder = spec.sectionOrder

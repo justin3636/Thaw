@@ -47,7 +47,10 @@ extension MenuBarItemManager {
     }
 
     func orderedItems(_ items: [MenuBarItem]) -> [MenuBarItem] {
-        guard itemOrder.enabled else { return items }
+        // Hosted items temporarily inherit Control Center's identity while
+        // source resolution is pending. Sorting those names would move the
+        // section once at startup and again when the real names arrive.
+        guard itemOrder.enabled, !items.contains(where: \.hasProvisionalIdentity) else { return items }
         let indices = Dictionary(itemOrder.sorted(
             items.map(\.tag.tagIdentifier), overrides: triggerOrderOverrides
         ).enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })

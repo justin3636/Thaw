@@ -83,16 +83,18 @@ extension MenuBarItemManager {
                 let actual = self.itemCache[section]
                 let desired = self.orderedItems(actual)
                 guard actual.map(\.windowID) != desired.map(\.windowID) else { continue }
-                for (index, item) in desired.enumerated().reversed() where index < desired.count - 1 && item.isMovable {
+                let insertions = MenuBarItemOrder.leftwardInsertions(
+                    actual: actual.map(\.windowID), desired: desired.map(\.windowID)
+                )
+                for insertion in insertions {
+                    guard let item = actual.first(where: { $0.windowID == insertion.source }), item.isMovable,
+                          let next = actual.first(where: { $0.windowID == insertion.target }) else { continue }
                     let identifier = item.tag.tagIdentifier
                     if let failure = self.orderFailures[identifier], Date() < failure.retryAfter { continue }
-                    let next = desired[index + 1]
-                    guard let currentIndex = actual.firstIndex(where: { $0.windowID == item.windowID }),
-                          currentIndex == actual.count - 1 || actual[currentIndex + 1].windowID != next.windowID else { continue }
                     do {
                         try await self.move(item: item, to: .leftOfItem(next), on: self.itemCache.displayID,
                             options: .init(requiredInputPause: .milliseconds(100), inputPauseTimeout: .milliseconds(500),
-                                           maxMoveAttempts: 2, hideCursorAcrossAttempts: false,
+                                           maxMoveAttempts: 1, hideCursorAcrossAttempts: false,
                                            shouldBegin: { [weak self] in
                                                self?.itemOrder.enabled == true &&
                                                self?.isApplyingProfileLayout == false &&

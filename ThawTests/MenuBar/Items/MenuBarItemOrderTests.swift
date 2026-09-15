@@ -5,6 +5,47 @@ import Testing
 
 @MainActor
 struct MenuBarItemOrderTests {
+    @Test func roomListenerIsOrderedByMovingNeighborsLeft() throws {
+        var actual = ["room", "codex", "hammerspoon", "teams", "walyro", "battery", "passwords"]
+        let desired = ["codex", "hammerspoon", "teams", "walyro", "battery", "room", "passwords"]
+        var moved = [String]()
+        for _ in 0..<5 {
+            let step = try #require(MenuBarItemOrder.leftwardInsertions(actual: actual, desired: desired).first)
+            #expect(step.source != "room")
+            let source = try #require(actual.firstIndex(of: step.source))
+            let target = try #require(actual.firstIndex(of: step.target))
+            #expect(source > target)
+            #expect(target == 0)
+            actual.insert(actual.remove(at: source), at: target)
+            moved.append(step.source)
+        }
+        #expect(actual == desired)
+        #expect(moved == ["battery", "walyro", "teams", "hammerspoon", "codex"])
+        #expect(MenuBarItemOrder.leftwardInsertions(actual: actual, desired: desired).isEmpty)
+    }
+
+    @Test func leftwardRepairsConvergeForEveryFiveItemPermutation() throws {
+        func permutations(_ items: [Int]) -> [[Int]] {
+            guard !items.isEmpty else { return [[]] }
+            return items.flatMap { first in
+                permutations(items.filter { $0 != first }).map { [first] + $0 }
+            }
+        }
+        let desired = [0, 1, 2, 3, 4]
+        for initial in permutations(desired) {
+            var actual = initial
+            for _ in 0..<desired.count - 1 where actual != desired {
+                let step = try #require(MenuBarItemOrder.leftwardInsertions(actual: actual, desired: desired).first)
+                let source = try #require(actual.firstIndex(of: step.source))
+                let target = try #require(actual.firstIndex(of: step.target))
+                #expect(source > target)
+                #expect(target == 0)
+                actual.insert(actual.remove(at: source), at: target)
+            }
+            #expect(actual == desired)
+        }
+    }
+
     @Test func orderingWaitsForResolvedIdentities() {
         let manager = MenuBarItemManager()
         let known = MenuBarItem.fixture(tag: .appItem(bundleID: "com.example.known", title: "Item"), windowID: 1)

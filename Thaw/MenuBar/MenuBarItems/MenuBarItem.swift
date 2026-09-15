@@ -198,6 +198,15 @@ nonisolated struct MenuBarItem: CustomStringConvertible {
             return Constants.displayName
         }
 
+        // Hammerspoon publishes each hs.menubar autosaveName as its title.
+        // Keep that identity visible even before source-PID resolution finishes.
+        if tag.namespace == .string("org.hammerspoon.Hammerspoon"),
+           !tag.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !MarkerPairResolver.isGenericControlCenterTitle(tag.title)
+        {
+            return tag.title
+        }
+
         lazy var fallbackName = "Menu Bar Item"
 
         guard let sourceApplication else {

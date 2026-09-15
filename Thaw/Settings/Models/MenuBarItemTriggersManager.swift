@@ -134,6 +134,13 @@ final class MenuBarItemTriggersManager {
     /// move chain catches up.
     var pendingMoveReveal = [UUID: Bool]()
 
+    var moveFailures = [UUID: (action: TriggerPriorityAction, count: Int, retryAfter: Date)]()
+
+    nonisolated static func retryDelay(failureCount: Int) -> TimeInterval {
+        min(30, pow(2, Double(min(5, max(0, failureCount - 1)))))
+    }
+
+
     /// Target identifiers included in a queued or in-flight move.
     var pendingMoveItemIdentifiers = [UUID: Set<String>]()
 
@@ -323,6 +330,7 @@ final class MenuBarItemTriggersManager {
     /// Replaces the trigger sharing the given id, if present.
     func update(_ trigger: MenuBarItemTrigger) {
         guard let index = triggers.firstIndex(where: { $0.id == trigger.id }) else { return }
+        moveFailures[trigger.id] = nil
         triggers[index] = trigger
     }
 
@@ -615,6 +623,8 @@ final class MenuBarItemTriggersManager {
     }
 
     func clearApplyState(for triggerID: UUID) {
+        // Losing a transient item/condition snapshot must not rearm a failed
+        // physical drag. Only update(trigger:) explicitly clears that latch.
         pendingApplyTasks[triggerID]?.cancel()
         pendingApplyTasks[triggerID] = nil
         pendingApplyActions[triggerID] = nil

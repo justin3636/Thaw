@@ -20,9 +20,36 @@ enum ImageHashing {
     /// The side length of the downscaled hash grid.
     private static let side = 8
 
+    /// Captures can change their transparent frame when an item is parked.
+    /// Hash the icon content, and treat an empty offscreen surface as missing.
+    static func iconContent(_ image: CGImage) -> CGImage? {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0, width <= 4096, height <= 4096 else { return nil }
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.setBlendMode(.copy)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard rendered else { return nil }
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width where pixels[(y * width + x) * 4 + 3] > 8 {
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        return image.cropping(to: CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1))
+    }
+
     /// Computes the 64-bit average hash of the given image, or `nil` if the
     /// image can't be rendered.
     static func averageHash(_ image: CGImage) -> UInt64? {
+        guard let image = iconContent(image) else { return nil }
         let count = side * side
         var pixels = [UInt8](repeating: 0, count: count)
 
@@ -66,6 +93,7 @@ enum ImageHashing {
     /// Unlike ``averageHash``, a one-pixel difference changes this value,
     /// which is appropriate for the opt-in exact comparison mode.
     static func exactHash(_ image: CGImage) -> UInt64? {
+        guard let image = iconContent(image) else { return nil }
         let width = image.width
         let height = image.height
         guard

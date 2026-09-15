@@ -1243,10 +1243,26 @@ private struct TriggerRow: View {
                 Text(section.triggerPickerDisplayString).tag(section)
             }
         }
+        orderOverride("Override shown order", value: $trigger.revealOrderOverride)
         IcePicker("Otherwise hide in", selection: $trigger.hideSection) {
             ForEach(MenuBarSection.Name.allCases, id: \.self) { section in
                 Text(section.triggerPickerDisplayString).tag(section)
             }
+        }
+        orderOverride("Override hidden order", value: $trigger.hideOrderOverride)
+    }
+
+    @ViewBuilder
+    private func orderOverride(_ label: String, value: Binding<Int?>) -> some View {
+        Toggle(label, isOn: Binding(
+            get: { value.wrappedValue != nil },
+            set: { value.wrappedValue = $0 ? 10 : nil }
+        ))
+        if value.wrappedValue != nil {
+            TextField("Order (lower is farther left)", value: Binding(
+                get: { value.wrappedValue ?? 10 },
+                set: { value.wrappedValue = $0 }
+            ), format: .number)
         }
     }
 

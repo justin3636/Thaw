@@ -24,6 +24,18 @@ import Testing
 /// `menuBarItemResolvedNames` defaults dictionary, which must not interleave.
 @Suite(.serialized)
 struct MenuBarItemNameMemoryTests {
+    @Test("Hammerspoon autosave names remain visible before process resolution")
+    func hammerspoonAutosaveNames() {
+        for name in ["JW.AC", "JW.TVControl", "JW.RoomListener"] {
+            let item = MenuBarItem.fixture(
+                tag: .appItem(bundleID: "org.hammerspoon.Hammerspoon", title: name),
+                windowID: 42,
+                sourcePID: nil
+            )
+            #expect(item.autoDetectedName == name)
+        }
+    }
+
     @Test("An ordinary app item is eligible")
     func ordinaryAppItemIsEligible() {
         let item = MenuBarItem.fixture(

@@ -169,11 +169,17 @@ final class UpdatesManager: NSObject {
 
     /// Starts the updater if it hasn't been started yet.
     func startUpdaterIfNeeded() {
+        // Local development builds must not replace themselves with a stock
+        // release and silently discard the fork's fixes.
+        #if DEBUG
+            return
+        #else
         guard !hasStartedUpdater else {
             return
         }
         hasStartedUpdater = true
         updaterController.startUpdater()
+        #endif
     }
 
     /// Configures the internal observers for the manager.

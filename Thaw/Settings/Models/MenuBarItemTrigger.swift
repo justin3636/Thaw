@@ -306,7 +306,12 @@ enum TriggerCondition: Codable, Hashable {
             }
             return outcome.matchedExpectedOutputs.contains(expectedOutput) ||
                 outcome.output.localizedCaseInsensitiveContains(expectedOutput)
-        case let .imageChanged(itemIdentifier, referenceHash, referenceExactHash, comparisonMode, _):
+        case let .imageChanged(itemIdentifier, referenceHash, referenceExactHash, comparisonMode, referenceImageData):
+            // Recompute older references with the same padding normalization
+            // as live samples, while retaining hash-only legacy references.
+            let referenceImage = referenceImageData.flatMap { NSBitmapImageRep(data: $0)?.cgImage }
+            let referenceHash = referenceImage.flatMap { ImageHashing.averageHash($0) } ?? referenceHash
+            let referenceExactHash = referenceImage.flatMap { ImageHashing.exactHash($0) } ?? referenceExactHash
             switch comparisonMode ?? .fuzzy {
             case .fuzzy:
                 guard let referenceHash, let current = state.imageHashes[itemIdentifier] else { return false }
@@ -1084,6 +1089,8 @@ struct MenuBarItemTrigger: Codable, Hashable, Identifiable {
     /// Overrides the debounce settle (seconds) before a flip is applied.
     /// `nil` uses the per-condition default.
     var settleSecondsOverride: Double?
+    var revealOrderOverride: Int?
+    var hideOrderOverride: Int?
 
     init(
         id: UUID = UUID(),
@@ -1100,7 +1107,9 @@ struct MenuBarItemTrigger: Codable, Hashable, Identifiable {
         combinator: TriggerCombinator = .all,
         invert: Bool = false,
         notifyOnReveal: Bool = false,
-        settleSecondsOverride: Double? = nil
+        settleSecondsOverride: Double? = nil,
+        revealOrderOverride: Int? = nil,
+        hideOrderOverride: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -1117,13 +1126,15 @@ struct MenuBarItemTrigger: Codable, Hashable, Identifiable {
         self.invert = invert
         self.notifyOnReveal = notifyOnReveal
         self.settleSecondsOverride = settleSecondsOverride
+        self.revealOrderOverride = revealOrderOverride
+        self.hideOrderOverride = hideOrderOverride
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, isEnabled, itemIdentifier, itemDisplayName, itemBaseIdentifier
         case revealSection, hideSection, condition, invert
         case additionalConditions, combinator
-        case notifyOnReveal, settleSecondsOverride
+        case notifyOnReveal, settleSecondsOverride, revealOrderOverride, hideOrderOverride
         case additionalItems
     }
 
@@ -1146,6 +1157,8 @@ struct MenuBarItemTrigger: Codable, Hashable, Identifiable {
         invert = try container.decodeIfPresent(Bool.self, forKey: .invert) ?? false
         notifyOnReveal = try container.decodeIfPresent(Bool.self, forKey: .notifyOnReveal) ?? false
         settleSecondsOverride = try container.decodeIfPresent(Double.self, forKey: .settleSecondsOverride)
+        revealOrderOverride = try container.decodeIfPresent(Int.self, forKey: .revealOrderOverride)
+        hideOrderOverride = try container.decodeIfPresent(Int.self, forKey: .hideOrderOverride)
         additionalItems = try container.decodeIfPresent([TriggerTargetItem].self, forKey: .additionalItems) ?? []
     }
 

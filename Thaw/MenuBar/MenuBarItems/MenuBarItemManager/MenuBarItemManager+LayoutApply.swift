@@ -837,8 +837,8 @@ extension MenuBarItemManager {
         // rewritten the next time the layout is persisted. Keyed maps are
         // migrated too, or the section lookup misses the renamed entry.
         let sectionOrder = LayoutSolver.canonicalizedSectionOrder(rawSectionOrder)
-        let itemOrder = LayoutSolver.canonicalizedSectionOrder(rawItemOrder)
-        let itemSectionMap = Dictionary(
+        var itemOrder = LayoutSolver.canonicalizedSectionOrder(rawItemOrder)
+        var itemSectionMap = Dictionary(
             rawItemSectionMap.map { (LayoutSolver.canonicalIdentifier($0.key), $0.value) },
             uniquingKeysWith: { first, _ in first }
         )
@@ -922,6 +922,20 @@ extension MenuBarItemManager {
             itemSectionMap: itemSectionMap,
             itemOrder: itemOrder
         )
+
+        // Persist the profile baseline above, but let triggers own their live
+        // placement. Every profile path (including startup) must exclude them
+        // from both the ordered sequence and section-boundary planning.
+        let knownItems = itemCache.managedItems
+        itemOrder = Self.savedOrderExcludingTriggerControlledIdentifiers(
+            itemOrder,
+            controlledIdentifiers: triggerControlledItemIdentifiers,
+            knownBaseIdentifiers: Set(knownItems.map(\.tag.stableIdentifierBase)),
+            knownLiveIdentifiers: Set(knownItems.map(\.uniqueIdentifier))
+        )
+        itemOrder = orderedSections(itemOrder)
+        let plannedItemIDs = Set(itemOrder.values.joined())
+        itemSectionMap = itemSectionMap.filter { plannedItemIDs.contains($0.key) }
 
         // Token identifying this apply's ownership of the armed profile
         // state. Captured immediately after arming, before any await can
@@ -3691,6 +3705,7 @@ extension MenuBarItemManager {
         } else {
             effectiveSavedOrder = savedSectionOrder
         }
+        effectiveSavedOrder = orderedSections(effectiveSavedOrder)
         let knownBaseIdentifiers = Set(items.map(\.tag.stableIdentifierBase))
         let knownLiveIdentifiers = Set(items.map(\.uniqueIdentifier))
         effectiveSavedOrder = Self.savedOrderExcludingTriggerControlledIdentifiers(

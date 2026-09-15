@@ -101,9 +101,19 @@ extension MenuBarItemTriggersManager {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.runScriptsIfNeeded()
-                self.refreshImageHashesIfNeeded()
                 self.updateAttentionDetectionDemand()
                 self.evaluate(for: self.evaluationState, force: true)
+            }
+            .store(in: &cancellables)
+
+        // Icon conditions need a short sampling interval; script execution
+        // retains its independent, slower cadence.
+        Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.refreshImageHashesIfNeeded()
+                self.evaluate(for: self.evaluationState, force: false)
             }
             .store(in: &cancellables)
 
@@ -184,6 +194,15 @@ extension MenuBarItemTriggersManager {
         // on which writer ran last.
         refreshControlledIdentifiers()
         appState.itemManager.setTriggerControlledItemIdentifiers(triggerControlledIdentifiers)
+        var orderOverrides = [String: Int]()
+        for trigger in triggers {
+            guard let action = plan.actions[trigger.id],
+                  let rank = action.reveal ? trigger.revealOrderOverride : trigger.hideOrderOverride else { continue }
+            for identifier in action.identifiers { orderOverrides[identifier] = rank }
+        }
+        appState.itemManager.triggerOrderOverrides = orderOverrides
+        appState.itemManager.scheduleOrderEnforcement()
+
 
         for trigger in triggers where trigger.isEnabled {
             guard !trigger.allItemIdentifiers.isEmpty else { continue }
@@ -203,6 +222,17 @@ extension MenuBarItemTriggersManager {
                     setRuntimeStatus(.idle, for: trigger.id)
                 }
                 continue
+            }
+
+            if let failure = moveFailures[trigger.id] {
+                // A physical failure requires an explicit edit/retry. Image
+                // conditions may fluctuate; that must not rearm failed drags.
+                if failure.retryAfter == .distantFuture { continue }
+                if failure.action != action {
+                    moveFailures[trigger.id] = nil
+                } else if now < failure.retryAfter {
+                    continue
+                }
             }
 
             if appliedActionMatches(action, for: trigger.id),
@@ -401,8 +431,8 @@ extension MenuBarItemTriggersManager {
             requiredInputPause: .milliseconds(50),
             inputPauseTimeout: nil,
             watchdogTimeout: nil,
-            maxMoveAttempts: 8,
-            hideCursorAcrossAttempts: true
+            maxMoveAttempts: 3,
+            hideCursorAcrossAttempts: false
         )
     }
 
@@ -507,6 +537,7 @@ extension MenuBarItemTriggersManager {
                             + "\(self.formattedElapsed(since: itemMoveStartedAt))"
                     )
                     self.setRuntimeStatus(.failed, for: trigger.id)
+                    self.moveFailures[trigger.id] = (action, 1, .distantFuture)
                     self.finishPendingMove(for: trigger, action: action, applied: false, retry: false)
                     return
                 case .unavailable:
@@ -566,6 +597,7 @@ extension MenuBarItemTriggersManager {
             clearPendingMove(for: trigger.id)
         }
         if applied {
+            moveFailures[trigger.id] = nil
             lastAppliedReveal[trigger.id] = action.reveal
             lastAppliedItemIdentifiers[trigger.id] = action.identifierSet
             setRuntimeStatus(action.reveal ? .active : .idle, for: trigger.id)
@@ -574,8 +606,12 @@ extension MenuBarItemTriggersManager {
         lastAppliedReveal[trigger.id] = nil
         lastAppliedItemIdentifiers[trigger.id] = nil
         guard retry, queuedMoveIsCurrent(for: trigger, action: action) else { return }
-        diagLog.debug("Retrying deferred trigger move for \(trigger.displayName) after layout settles")
-        scheduleEvaluation(after: .seconds(1))
+        let previous = moveFailures[trigger.id]
+        let count = previous?.action == action ? (previous?.count ?? 0) + 1 : 1
+        let delay = Self.retryDelay(failureCount: count)
+        moveFailures[trigger.id] = (action, count, Date().addingTimeInterval(delay))
+        diagLog.debug("Retrying trigger move for \(trigger.displayName) in \(delay) seconds")
+        scheduleEvaluation(after: .seconds(delay))
     }
 
     /// Returns whether every target in an applied action is physically in the
@@ -739,11 +775,10 @@ extension MenuBarItemTriggersManager {
             var changed = removedAny
             for id in ids {
                 guard let fingerprints = await self.currentImageFingerprints(forItemIdentifier: id) else {
-                    if self.imageHashes[id] != nil || self.exactImageHashes[id] != nil {
-                        self.imageHashes[id] = nil
-                        self.exactImageHashes[id] = nil
-                        changed = true
-                    }
+                    // A missing off-screen capture is not evidence that the
+                    // icon reverted. Keep the last successful sample; clearing
+                    // it flips image triggers between reveal/hide on capture
+                    // failures and can create an endless move loop.
                     continue
                 }
                 if self.imageHashes[id] != fingerprints.perceptual
@@ -789,8 +824,9 @@ extension MenuBarItemTriggersManager {
             return nil
         }
 
-        return await ScreenCapture.captureWindowAsync(with: item.windowID)
-            ?? ScreenCapture.captureWindow(with: item.windowID)
+        // Use the same window-surface capture for visible and parked items.
+        // Hashing removes transparent framing and rejects empty surfaces.
+        return ScreenCapture.captureWindow(with: item.windowID)
     }
 
     /// Captures both the runtime hash and a compact settings preview.

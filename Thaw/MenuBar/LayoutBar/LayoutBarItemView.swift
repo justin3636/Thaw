@@ -487,7 +487,15 @@ final class LayoutBarItemView: LayoutBarArrangedView {
         }
         // When the user prefers app icons, the placeholder — which resolves
         // app icons — draws instead of the captured glyph.
-        if !usesAppIcon, let capturedImage = cachedImage?.nsImage {
+        if item.tag.namespace == .string("org.hammerspoon.Hammerspoon") {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.labelColor.withAlphaComponent(fraction),
+            ]
+            let text = item.displayName as NSString
+            let size = text.size(withAttributes: attributes)
+            text.draw(at: CGPoint(x: 6, y: (bounds.height - size.height) / 2), withAttributes: attributes)
+        } else if !usesAppIcon, let capturedImage = cachedImage?.nsImage {
             capturedImage.draw(
                 in: bounds,
                 from: .zero,
@@ -602,6 +610,10 @@ final class LayoutBarItemView: LayoutBarArrangedView {
         for item: MenuBarItem,
         image: MenuBarItemImageCache.CapturedImage?
     ) -> CGSize {
+        if item.tag.namespace == .string("org.hammerspoon.Hammerspoon") {
+            let size = (item.displayName as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)])
+            return CGSize(width: size.width + 24, height: max(item.bounds.height, Metrics.minHeight))
+        }
         if let image {
             return image.scaledSize
         }

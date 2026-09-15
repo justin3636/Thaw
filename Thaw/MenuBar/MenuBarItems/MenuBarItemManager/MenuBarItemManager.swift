@@ -30,7 +30,17 @@ final class MenuBarItemManager {
     static let uiSettleDelay: Duration = .milliseconds(300)
 
     /// The current cache of menu bar items.
-    var itemCache = ItemCache(displayID: nil)
+    var itemOrder = MenuBarItemOrder()
+    var triggerOrderOverrides: [String: Int] = [:]
+    @ObservationIgnored var orderFailures: [String: (count: Int, retryAfter: Date)] = [:]
+    @ObservationIgnored var orderEnforcementTask: Task<Void, Never>?
+
+    var itemCache = ItemCache(displayID: nil) {
+        didSet {
+            registerObservedItemOrder()
+            scheduleOrderEnforcement()
+        }
+    }
 
     /// A Boolean value that indicates whether the control items for the
     /// hidden sections are missing from the menu bar.
@@ -1117,7 +1127,7 @@ final class MenuBarItemManager {
     /// screen by itself.
     func applyGroupOrderToLiveSections() async {
         guard appState != nil else { return }
-        let gathered = gatheredSectionOrder(savedSectionOrder)
+        let gathered = orderedSections(gatheredSectionOrder(savedSectionOrder))
         guard gathered != savedSectionOrder, !savedSectionOrder.isEmpty else {
             return
         }
@@ -1368,7 +1378,7 @@ final class MenuBarItemManager {
         // member. Applying the gather here means periodic saves, profile
         // captures, and everything downstream of this function observe the
         // invariant without knowing about groups.
-        let newOrder = gatheredSectionOrder(computedOrder)
+        let newOrder = orderedSections(gatheredSectionOrder(computedOrder))
         guard newOrder != savedSectionOrder else { return }
         let previousOrder = savedSectionOrder
         savedSectionOrder = newOrder
@@ -1796,6 +1806,7 @@ final class MenuBarItemManager {
         loadPinnedBundleIDs()
         loadPendingRelocations()
         loadSavedSectionOrder()
+        loadItemOrder()
         loadNewItemsPlacementPreference()
         MenuBarItemManager.diagLog.debug("performSetup: loaded \(knownItemIdentifiers.count) known identifiers, \(pinnedHiddenBundleIDs.count) pinned hidden, \(pinnedAlwaysHiddenBundleIDs.count) pinned always-hidden, \(savedSectionOrder.values.map(\.count)) saved order entries")
         // On first launch (no known identifiers), avoid auto-relocating the leftmost item

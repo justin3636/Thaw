@@ -107,7 +107,7 @@ struct MoveEventCoordinatesTests {
             MenuBarItemManager.MoveDestination.rightOfItem(target).targetPoint(
                 in: bounds,
                 on: displayBounds
-            ) == CGPoint(x: bounds.maxX + 1, y: bounds.midY)
+            ) == CGPoint(x: bounds.maxX + 1, y: bounds.minY)
         )
     }
 

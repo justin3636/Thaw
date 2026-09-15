@@ -29,6 +29,7 @@ struct MenuBarLayoutSettingsPane: View {
                     missingScreenRecordingPermissions
                 }
                 LayoutBarsSection(itemManager: itemManager)
+                MenuBarItemOrderingSection(itemManager: itemManager)
                 spacersCard
                 MenuBarLayoutGroupsSection()
                 layoutSectionsCard

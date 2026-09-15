@@ -48,8 +48,6 @@ extension MenuBarItemManager {
         /// top Hot Corner. On-screen targets retain the existing top-edge
         /// coordinate to avoid changing normal cursor-warp behavior.
         func targetPoint(in targetBounds: CGRect, on displayBounds: CGRect) -> CGPoint {
-            let targetIsParkedOffscreen = targetBounds.maxX <= displayBounds.minX
-            let targetY = targetIsParkedOffscreen ? targetBounds.midY : targetBounds.minY
             // Dropping on a divider's own edge leaves AppKit free to choose
             // either side of it, and in #923 it chose wrong every time:
             // .leftOfItem(AH_ctrl) landed the item at the divider's minX + 1,
@@ -82,12 +80,15 @@ extension MenuBarItemManager {
                 || targetItem.tag == .alwaysHiddenControlItem
                 || targetItem.tag == .visibleControlItem
             let sectionBias: CGFloat = targetIsControlItem ? 1 : 0
-            return switch self {
-            case .leftOfItem:
-                CGPoint(x: targetBounds.minX - sectionBias, y: targetY)
-            case .rightOfItem:
-                CGPoint(x: targetBounds.maxX + sectionBias, y: targetY)
+            let targetX = switch self {
+            case .leftOfItem: targetBounds.minX - sectionBias
+            case .rightOfItem: targetBounds.maxX + sectionBias
             }
+            // A concealment divider can straddle the display edge. Classify
+            // the actual drop point, not its visible right edge, or a left
+            // drop is clamped into the top-left hot corner.
+            let targetY = targetX < displayBounds.minX ? targetBounds.midY : targetBounds.minY
+            return CGPoint(x: targetX, y: targetY)
         }
 
         /// Whether a synthetic drag to this destination would press at a
@@ -173,16 +174,32 @@ extension MenuBarItemManager {
         selectedDisplayID: CGDirectDisplayID,
         displays: [MoveDisplayGeometry],
         parkedLaneYRange: ClosedRange<CGFloat>?,
-        controlDividerX: CGFloat?
+        controlDividerX: CGFloat?,
+        isSectionDivider: Bool = false
     ) -> MoveEndpointDisposition {
+        // Concealment dividers are intentionally thousands of points wide.
+        // Their visible right edge, not their off-screen center, identifies
+        // the display they belong to.
+        if isSectionDivider,
+           let selected = displays.first(where: { $0.id == selectedDisplayID }),
+           bounds.minX < selected.bounds.minX,
+           (selected.bounds.minX ... selected.bounds.maxX).contains(bounds.maxX),
+           parkedLaneYRange?.contains(bounds.midY) == true {
+            return .parked
+        }
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        if isOnScreen {
-            guard let physicalDisplay = displays.first(where: { $0.bounds.contains(center) }) else {
-                return .invalid
-            }
+        if isOnScreen,
+           let physicalDisplay = displays.first(where: { $0.bounds.contains(center) }) {
             return physicalDisplay.id == selectedDisplayID
                 ? .selectedDisplay
                 : .otherDisplay(physicalDisplay.id)
+        }
+        // WindowServer can retain isOnScreen after a status item is parked
+        // behind a concealment divider. Accept that contradiction only when
+        // the entire item is left of the selected display.
+        if isOnScreen {
+            guard let selected = displays.first(where: { $0.id == selectedDisplayID }),
+                  bounds.maxX <= selected.bounds.minX else { return .invalid }
         }
 
         guard
@@ -891,7 +908,8 @@ extension MenuBarItemManager {
                 selectedDisplayID: displayID,
                 displays: displays,
                 parkedLaneYRange: parkedLaneYRange,
-                controlDividerX: dividerX
+                controlDividerX: dividerX,
+                isSectionDivider: endpoint.tag == .hiddenControlItem || endpoint.tag == .alwaysHiddenControlItem
             )
             switch value {
             case .selectedDisplay, .parked:
@@ -1162,7 +1180,10 @@ extension MenuBarItemManager {
         // when slow apps have to register the tracking events before the
         // mouseDown; irrelevant offscreen.
         let warpPoint = initialEventLocations.press
-        let warpIsOnScreen = initialGeometry.target == .selectedDisplay
+        // A wide concealment divider is parked, but its right edge can
+        // still be a visible drop point. Tracking depends on the actual
+        // press point, not the divider window's center/disposition.
+        let warpIsOnScreen = CGDisplayBounds(displayID).contains(warpPoint)
         if warpIsOnScreen {
             // Load-bearing for event delivery — keep unconditionally, even
             // during a bulk apply: the receiving app's tracking needs the
@@ -2220,7 +2241,7 @@ extension MenuBarItemManager {
         // back to it a single time after all attempts, rather than after each
         // individual attempt (which caused the cursor to oscillate many times
         // during a layout reset when items required multiple attempts).
-        let mouseLocation = options.hideCursorAcrossAttempts ? try getMouseLocation() : nil
+        let mouseLocation = try getMouseLocation()
         // The default 1 s cursor-hide watchdog is too short for menu
         // bar item moves, and the budget they can burn has grown: every
         // attempt spends its whole timeout four times over (two event
@@ -2244,8 +2265,13 @@ extension MenuBarItemManager {
             MouseHelpers.hideCursor(watchdogTimeout: cursorWatchdog)
         }
         defer {
-            if let mouseLocation {
-                MouseHelpers.restoreCursorPosition(to: mouseLocation)
+            // Visibility is optional; restoration is not. postMoveEvents
+            // delegates restoration to this transaction on every attempt.
+            MouseHelpers.restoreCursorPosition(to: mouseLocation)
+            if let restoredLocation = try? getMouseLocation() {
+                Self.diagLog.debug("Move cursor restored: before=\(mouseLocation) after=\(restoredLocation) hideAcrossAttempts=\(options.hideCursorAcrossAttempts)")
+            }
+            if options.hideCursorAcrossAttempts {
                 MouseHelpers.showCursor()
             }
         }

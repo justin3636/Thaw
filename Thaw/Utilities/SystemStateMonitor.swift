@@ -371,7 +371,7 @@ final class SystemStateMonitor: ObservableObject {
 
     private func setPolling(_ enabled: Bool) {
         if enabled, pollTimer == nil {
-            let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.samplePolledSources() }
             }
             RunLoop.main.add(timer, forMode: .common)
@@ -425,8 +425,9 @@ final class SystemStateMonitor: ObservableObject {
         // one's streams, and the audio, VPN and SSID lookups are synchronous
         // system queries. At a five-second cadence that is a recurring main
         // -thread stall for the whole app, not just this monitor.
-        polledSampleTask?.cancel()
+        guard polledSampleTask == nil else { return }
         polledSampleTask = Task { @MainActor [weak self] in
+            defer { self?.polledSampleTask = nil }
             let sample = await Task.detached(priority: .utility) {
                 PolledSample(
                     audioOutputDeviceName: wantsAudio ? Self.defaultAudioOutputDeviceName() : nil,

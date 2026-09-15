@@ -368,18 +368,41 @@ extension MenuBarItemManager {
             resolvedSection = .hidden
         }
 
-        // Skip when the item already resides in the effective target section.
         let displayID = Bridging.getActiveMenuBarDisplayID()
         var context = CacheContext(controlItems: controlItems, displayID: displayID)
         let currentSection = context.findSection(for: target)
+        var destination = LayoutReconciler.boundaryDestination(for: resolvedSection, controlItems: controlItems)
+        // The Thaw icon occupies the leading visible slot. Revealing before
+        // it fights that slot and can report a failed move even after the
+        // item is visible. Use the icon as the visible-section anchor.
+        if resolvedSection == .visible,
+           let icon = items.first(where: { $0.tag == .visibleControlItem }) {
+            destination = .rightOfItem(icon)
+        }
+        // Concealment dividers are enormous windows rather than normal
+        // status items. Prefer an actual item in the concealed section as
+        // the drop anchor; AppKit can then resolve an ordinary adjacent slot.
+        if resolvedSection != .visible,
+           let anchor = items.filter({ !$0.isControlItem && $0.windowID != target.windowID && context.findSection(for: $0) == resolvedSection })
+               .min(by: { $0.bounds.minX < $1.bounds.minX }) {
+            destination = .leftOfItem(anchor)
+        }
+        if itemOrder.enabled {
+            let sectionItems = items.filter { context.findSection(for: $0) == resolvedSection && $0.windowID != target.windowID }
+            let ordered = orderedItems(sectionItems + [target])
+            if let index = ordered.firstIndex(where: { $0.windowID == target.windowID }) {
+                if index + 1 < ordered.count { destination = .leftOfItem(ordered[index + 1]) }
+                // For the final slot, reveal/hide at the reliable section
+                // anchor first; the order reconciler places its predecessors
+                // to the left without an offscreen right-edge drop.
+            }
+        }
         if currentSection == resolvedSection {
-            MenuBarItemManager.diagLog.info(
-                "moveItem(trigger): already in \(resolvedSection.logString), skipping \(target.logString)"
-            )
+            // The order-only reconciler handles drift within this section.
+            scheduleOrderEnforcement()
             return .alreadyInSection
         }
 
-        let destination = LayoutReconciler.boundaryDestination(for: resolvedSection, controlItems: controlItems)
         MenuBarItemManager.diagLog.info(
             """
             moveItem(trigger): planning move tagIdentifier=\(tagIdentifier) \

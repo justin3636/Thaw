@@ -388,16 +388,9 @@ extension MenuBarItemManager {
                .min(by: { $0.bounds.minX < $1.bounds.minX }) {
             destination = .leftOfItem(anchor)
         }
-        if itemOrder.enabled {
-            let sectionItems = items.filter { context.findSection(for: $0) == resolvedSection && $0.windowID != target.windowID }
-            let ordered = orderedItems(sectionItems + [target])
-            if let index = ordered.firstIndex(where: { $0.windowID == target.windowID }) {
-                if index + 1 < ordered.count { destination = .leftOfItem(ordered[index + 1]) }
-                // For the final slot, reveal/hide at the reliable section
-                // anchor first; the order reconciler places its predecessors
-                // to the left without an offscreen right-edge drop.
-            }
-        }
+        // Enter at the reliable section boundary first. Interior ranked drops
+        // can land at the section start and fail adjacency verification.
+        // The order reconciler applies saved ranks and trigger overrides later.
         if currentSection == resolvedSection {
             // The order-only reconciler handles drift within this section.
             scheduleOrderEnforcement()
@@ -423,6 +416,7 @@ extension MenuBarItemManager {
                 skipInputPause: options.requiredInputPause == .zero,
                 options: options
             )
+            scheduleOrderEnforcement()
             MenuBarItemManager.diagLog.info("moveItem(trigger): moved \(target.logString) to \(resolvedSection.logString)")
             return .moved
         } catch EventError.inputPauseTimedOut, EventError.moveSuperseded {

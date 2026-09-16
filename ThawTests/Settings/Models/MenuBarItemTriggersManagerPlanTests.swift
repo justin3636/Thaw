@@ -806,4 +806,26 @@ struct MenuBarItemTriggersManagerPlanTests {
         #expect(plan.actions[id]?.reveal == false)
         #expect(plan.actions[id]?.identifiers == ["b"])
     }
+    @Test("Physical failures retry twice with cooldown and recover on a changed decision")
+    func physicalFailureRecoveryIsBounded() {
+        let manager = makeManager()
+        let trigger = makeTrigger(name: "Hotspot", item: "ns:Hotspot")
+        let hide = MenuBarItemTriggersManager.TriggerPriorityAction(reveal: false, identifiers: ["ns:Hotspot"])
+        let show = MenuBarItemTriggersManager.TriggerPriorityAction(reveal: true, identifiers: ["ns:Hotspot"])
+        let start = Date(timeIntervalSince1970: 100)
+        #expect(manager.recordPhysicalMoveFailure(for: trigger.id, action: hide, now: start) == 5)
+        #expect(manager.physicalMoveFailures[trigger.id]?.permits(hide, now: start.addingTimeInterval(4)) == false)
+        #expect(manager.physicalMoveFailures[trigger.id]?.permits(show, now: start.addingTimeInterval(4)) == false)
+        #expect(manager.physicalMoveFailures[trigger.id]?.permits(hide, now: start.addingTimeInterval(5)) == true)
+        #expect(manager.recordPhysicalMoveFailure(for: trigger.id, action: hide, now: start.addingTimeInterval(5)) == 15)
+        #expect(manager.recordPhysicalMoveFailure(for: trigger.id, action: hide, now: start.addingTimeInterval(20)) == 30)
+        manager.clearApplyState(for: trigger.id)
+        #expect(manager.physicalMoveFailures[trigger.id]?.permits(hide, now: start.addingTimeInterval(500)) == false)
+        #expect(manager.physicalMoveFailures[trigger.id]?.permits(show, now: start.addingTimeInterval(49)) == false)
+        #expect(manager.physicalMoveFailures[trigger.id]?.permits(show, now: start.addingTimeInterval(50)) == true)
+        manager.finishPendingMove(for: trigger, action: show, applied: true, retry: false)
+        #expect(manager.physicalMoveFailures[trigger.id] == nil)
+        #expect(manager.runtimeStatus(for: trigger) == .active)
+    }
+
 }

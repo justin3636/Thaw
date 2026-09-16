@@ -140,6 +140,28 @@ final class MenuBarItemTriggersManager {
 
     var moveFailures = [UUID: (action: TriggerPriorityAction, count: Int, retryAfter: Date)]()
 
+    /// Physical failures have their own budget; input deferrals cannot reset it.
+    struct PhysicalMoveFailure {
+        var action: TriggerPriorityAction
+        var count: Int
+        var retryAfter: Date
+
+        func permits(_ nextAction: TriggerPriorityAction, now: Date) -> Bool {
+            now >= retryAfter && (nextAction != action || count < 3)
+        }
+    }
+    var physicalMoveFailures = [UUID: PhysicalMoveFailure]()
+
+    @discardableResult
+    func recordPhysicalMoveFailure(for id: UUID, action: TriggerPriorityAction, now: Date) -> TimeInterval {
+        let previous = physicalMoveFailures[id]
+        let count = previous?.action == action ? (previous?.count ?? 0) + 1 : 1
+        let delay: TimeInterval = count == 1 ? 5 : count == 2 ? 15 : 30
+        physicalMoveFailures[id] = PhysicalMoveFailure(action: action, count: count, retryAfter: now.addingTimeInterval(delay))
+        return delay
+    }
+
+
     nonisolated static func retryDelay(failureCount: Int) -> TimeInterval {
         min(30, pow(2, Double(min(5, max(0, failureCount - 1)))))
     }
@@ -310,6 +332,8 @@ final class MenuBarItemTriggersManager {
         pendingMoveItemIdentifiers[id] = nil
         lastAppliedItemIdentifiers[id] = nil
         runtimeStatuses[id] = nil
+        moveFailures[id] = nil
+        physicalMoveFailures[id] = nil
         pendingApplyTasks[id]?.cancel()
         pendingApplyTasks[id] = nil
         pendingApplyActions[id] = nil
@@ -325,6 +349,8 @@ final class MenuBarItemTriggersManager {
             pendingMoveItemIdentifiers[id] = nil
             lastAppliedItemIdentifiers[id] = nil
             runtimeStatuses[id] = nil
+            moveFailures[id] = nil
+            physicalMoveFailures[id] = nil
             pendingApplyTasks[id]?.cancel()
             pendingApplyTasks[id] = nil
             pendingApplyActions[id] = nil
@@ -335,6 +361,7 @@ final class MenuBarItemTriggersManager {
     func update(_ trigger: MenuBarItemTrigger) {
         guard let index = triggers.firstIndex(where: { $0.id == trigger.id }) else { return }
         moveFailures[trigger.id] = nil
+        physicalMoveFailures[trigger.id] = nil
         triggers[index] = trigger
     }
 
@@ -651,7 +678,7 @@ final class MenuBarItemTriggersManager {
 
     func clearApplyState(for triggerID: UUID) {
         // Losing a transient item/condition snapshot must not rearm a failed
-        // physical drag. Only update(trigger:) explicitly clears that latch.
+        // physical drag. Preserve the bounded recovery budget across these gaps.
         pendingApplyTasks[triggerID]?.cancel()
         pendingApplyTasks[triggerID] = nil
         pendingApplyActions[triggerID] = nil

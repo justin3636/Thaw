@@ -224,10 +224,20 @@ extension MenuBarItemTriggersManager {
                 continue
             }
 
+            if let failure = physicalMoveFailures[trigger.id] {
+                // A drop may have reached the right section despite a failed
+                // adjacency check. Recover from observed placement without dragging.
+                if actionMatchesCurrentPlacement(action, for: trigger, appState: appState) {
+                    finishPendingMove(for: trigger, action: action, applied: true, retry: false)
+                    continue
+                }
+                guard failure.permits(action, now: now) else {
+                    setRuntimeStatus(.failed, for: trigger.id)
+                    continue
+                }
+            }
+
             if let failure = moveFailures[trigger.id] {
-                // A physical failure requires an explicit edit/retry. Image
-                // conditions may fluctuate; that must not rearm failed drags.
-                if failure.retryAfter == .distantFuture { continue }
                 if failure.action != action {
                     moveFailures[trigger.id] = nil
                 } else if now < failure.retryAfter {
@@ -426,7 +436,7 @@ extension MenuBarItemTriggersManager {
                 requiredInputPause: .seconds(1),
                 inputPauseTimeout: .seconds(3),
                 watchdogTimeout: .seconds(2),
-                maxMoveAttempts: 3,
+                maxMoveAttempts: 1,
                 hideCursorAcrossAttempts: false
             )
         }
@@ -434,7 +444,7 @@ extension MenuBarItemTriggersManager {
             requiredInputPause: .milliseconds(50),
             inputPauseTimeout: nil,
             watchdogTimeout: nil,
-            maxMoveAttempts: 3,
+            maxMoveAttempts: 1,
             hideCursorAcrossAttempts: false
         )
     }
@@ -540,8 +550,9 @@ extension MenuBarItemTriggersManager {
                             + "\(self.formattedElapsed(since: itemMoveStartedAt))"
                     )
                     self.setRuntimeStatus(.failed, for: trigger.id)
-                    self.moveFailures[trigger.id] = (action, 1, .distantFuture)
+                    let delay = self.recordPhysicalMoveFailure(for: trigger.id, action: action, now: Date())
                     self.finishPendingMove(for: trigger, action: action, applied: false, retry: false)
+                    self.scheduleEvaluation(after: .seconds(delay))
                     return
                 case .unavailable:
                     self.diagLog.debug(
@@ -600,6 +611,7 @@ extension MenuBarItemTriggersManager {
             clearPendingMove(for: trigger.id)
         }
         if applied {
+            physicalMoveFailures[trigger.id] = nil
             moveFailures[trigger.id] = nil
             lastAppliedReveal[trigger.id] = action.reveal
             lastAppliedItemIdentifiers[trigger.id] = action.identifierSet
